@@ -1,0 +1,51 @@
+---
+- name: Perform actions based on provided variable "action"
+  hosts: all
+  gather_facts: yes
+  tasks:
+    - name: Verify and install a HTTPD service
+      become: yes
+      package:
+        name: httpd
+        state: present
+      when: action == "verify_install" and inventory_hostname == "host1"
+
+    - name: Check disk space and send an alert email
+      become: yes
+      command: df -h
+      register: disk_space_output
+      changed_when: false
+      failed_when: disk_space_output.rc > 0 and "No space left on device" not in disk_space_output.stdout
+      when: action == "check-disk"
+      
+    - name: Send email if disk usage is above 80%
+      become: yes
+      mail:
+        host: localhost
+        port: 25
+        subject: "Disk Usage Alert"
+        body: "Disk usage is above 80% on {{ inventory_hostname }}. Please check."
+        to: shubhamjadhav760@email.com
+      when: action == "check-disk" and disk_space_output.stdout_lines | regex_search('([89][0-9]|100)%', ignorecase=True)
+
+    - name: Check the status of the application "rbcapp1"
+      uri:
+        url: http://localhost:8080/status
+        return_content: yes
+      register: app_status
+      when: action == "check-status"
+      
+    - name: Parse application status
+      set_fact:
+        app_status_json: "{{ app_status.json | default({}) }}"
+      when: app_status.status == 200 and action == "check-status"
+
+    - name: Determine services that are down
+      set_fact:
+        down_services: "{{ app_status_json.services_down | default([]) }}"
+      when: action == "check-status"
+
+    - name: Display the status of the application "rbcapp1"
+      debug:
+        msg: "Application 'rbcapp1' is {{ app_status_json.status }}. Down services: {{ down_services }}"
+      when: action == "check-status"
